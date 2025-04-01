@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minesweeper</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+        #renderDiv {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="renderDiv"></div>
+    <script>
+class Minesweeper extends Phaser.Scene {
+    constructor() {
+        super({
+            key: 'GameScene'
+        });
+        this.gridSize = 10;
+        this.cellSize = 50; // Increased cell size for cartoon style
+        this.mineCount = 15;
+        this.grid = [];
+        this.revealed = [];
+        this.flags = [];
+        this.gameOver = false;
+        this.newGameButton = null;
+    }
+    preload() {
+        // Load all generated assets
+        this.load.image('unrevealedCell', 'https://play.rosebud.ai/assets/unrevealedCell.png?tzRv');
+        this.load.image('revealedCell', 'https://play.rosebud.ai/assets/revealedCell.png?TeEt');
+        this.load.image('mine', 'https://play.rosebud.ai/assets/mine.png?F0lX');
+        this.load.image('flag', 'https://play.rosebud.ai/assets/flag.png?Eh4K');
+        this.load.image('number1', 'https://play.rosebud.ai/assets/number1.png?Jf0D');
+        this.load.image('number2', 'https://play.rosebud.ai/assets/number2.png?5Shz');
+        this.load.image('number3', 'https://play.rosebud.ai/assets/number3.png?KyQG');
+        this.load.image('number4', 'https://play.rosebud.ai/assets/number4.png?wmCV');
+        this.load.image('number5', 'https://play.rosebud.ai/assets/number5.png?QAgS');
+        this.load.image('number6', 'https://play.rosebud.ai/assets/number6.png?ec2X');
+        this.load.image('number7', 'https://play.rosebud.ai/assets/number7.png?mpGY');
+        this.load.image('number8', 'https://play.rosebud.ai/assets/number8.png?3EVh');
+    }
+
+    create() {
+        // Calculate grid position to center it
+        const gridWidth = this.gridSize * this.cellSize;
+        const startX = (800 - gridWidth) / 2;
+        const startY = (600 - gridWidth) / 2;
+
+        // Initialize arrays
+        for (let i = 0; i < this.gridSize; i++) {
+            this.grid[i] = [];
+            this.revealed[i] = [];
+            this.flags[i] = [];
+            for (let j = 0; j < this.gridSize; j++) {
+                this.grid[i][j] = 0;
+                this.revealed[i][j] = false;
+                this.flags[i][j] = false;
+            }
+        }
+
+        // Place mines randomly
+        let minesPlaced = 0;
+        while (minesPlaced < this.mineCount) {
+            const x = Phaser.Math.Between(0, this.gridSize - 1);
+            const y = Phaser.Math.Between(0, this.gridSize - 1);
+            if (this.grid[x][y] !== -1) {
+                this.grid[x][y] = -1;
+                minesPlaced++;
+            }
+        }
+
+        // Calculate numbers
+        for (let i = 0; i < this.gridSize; i++) {
+            for (let j = 0; j < this.gridSize; j++) {
+                if (this.grid[i][j] !== -1) {
+                    this.grid[i][j] = this.countAdjacentMines(i, j);
+                }
+            }
+        }
+
+        // Create visual grid
+        this.cells = [];
+        for (let i = 0; i < this.gridSize; i++) {
+            this.cells[i] = [];
+            for (let j = 0; j < this.gridSize; j++) {
+                const cell = this.add.image(
+                    startX + i * this.cellSize + this.cellSize / 2,
+                    startY + j * this.cellSize + this.cellSize / 2,
+                    'unrevealedCell'
+                );
+                cell.setDisplaySize(this.cellSize - 4, this.cellSize - 4); // Slightly smaller for cartoon style gap
+                cell.setInteractive();
+                cell.on('pointerdown', (pointer) => {
+                    if (!this.gameOver) {
+                        if (pointer.rightButtonDown()) {
+                            this.toggleFlag(i, j, cell);
+                        } else {
+                            this.revealCell(i, j, cell);
+                        }
+                    }
+                });
+                this.cells[i][j] = cell;
+            }
+        }
+
+        // Add game over text (hidden initially)
+        this.gameOverText = this.add.text(400, 250, '', {
+            fontSize: '48px',
+            fill: '#ff0000',
+            fontFamily: 'Arial Black',
+            stroke: '#000000',
+            strokeThickness: 8
+        }).setOrigin(0.5);
+        // Add New Game button
+        this.createNewGameButton();
+    }
+    createNewGameButton() {
+        // Create button background
+        this.newGameButton = this.add.rectangle(400, 570, 160, 40, 0x4a4a4a);
+        this.newGameButton.setStrokeStyle(2, 0xffffff);
+
+        // Create button text
+        const buttonText = this.add.text(400, 570, 'New Game', {
+            fontSize: '24px',
+            fill: '#ffffff',
+            fontFamily: 'Arial'
+        }).setOrigin(0.5);
+        // Make button interactive
+        this.newGameButton.setInteractive({
+                useHandCursor: true
+            })
+            .on('pointerdown', () => this.startNewGame())
+            .on('pointerover', () => this.newGameButton.setFillStyle(0x6a6a6a))
+            .on('pointerout', () => this.newGameButton.setFillStyle(0x4a4a4a));
+    }
+    startNewGame() {
+        // Reset game state
+        this.gameOver = false;
+        this.gameOverText.setText('');
+
+        // Clear existing grid
+        for (let i = 0; i < this.gridSize; i++) {
+            for (let j = 0; j < this.gridSize; j++) {
+                if (this.cells[i][j].flag) {
+                    this.cells[i][j].flag.destroy();
+                }
+                this.cells[i][j].destroy();
+            }
+        }
+
+        // Reset arrays
+        this.grid = [];
+        this.revealed = [];
+        this.flags = [];
+        this.cells = [];
+
+        // Recalculate grid position
+        const gridWidth = this.gridSize * this.cellSize;
+        const startX = (800 - gridWidth) / 2;
+        const startY = (600 - gridWidth) / 2;
+
+        // Reinitialize arrays
+        for (let i = 0; i < this.gridSize; i++) {
+            this.grid[i] = [];
+            this.revealed[i] = [];
+            this.flags[i] = [];
+            for (let j = 0; j < this.gridSize; j++) {
+                this.grid[i][j] = 0;
+                this.revealed[i][j] = false;
+                this.flags[i][j] = false;
+            }
+        }
+
+        // Place new mines
+        let minesPlaced = 0;
+        while (minesPlaced < this.mineCount) {
+            const x = Phaser.Math.Between(0, this.gridSize - 1);
+            const y = Phaser.Math.Between(0, this.gridSize - 1);
+            if (this.grid[x][y] !== -1) {
+                this.grid[x][y] = -1;
+                minesPlaced++;
+            }
+        }
+
+        // Recalculate numbers
+        for (let i = 0; i < this.gridSize; i++) {
+            for (let j = 0; j < this.gridSize; j++) {
+                if (this.grid[i][j] !== -1) {
+                    this.grid[i][j] = this.countAdjacentMines(i, j);
+                }
+            }
+        }
+
+        // Recreate visual grid
+        for (let i = 0; i < this.gridSize; i++) {
+            this.cells[i] = [];
+            for (let j = 0; j < this.gridSize; j++) {
+                const cell = this.add.image(
+                    startX + i * this.cellSize + this.cellSize / 2,
+                    startY + j * this.cellSize + this.cellSize / 2,
+                    'unrevealedCell'
+                );
+                cell.setDisplaySize(this.cellSize - 4, this.cellSize - 4);
+                cell.setInteractive();
+                cell.on('pointerdown', (pointer) => {
+                    if (!this.gameOver) {
+                        if (pointer.rightButtonDown()) {
+                            this.toggleFlag(i, j, cell);
+                        } else {
+                            this.revealCell(i, j, cell);
+                        }
+                    }
+                });
+                this.cells[i][j] = cell;
+            }
+        }
+    }
+
+    countAdjacentMines(x, y) {
+        let count = 0;
+        for (let i = -1; i <= 1; i++) {
+            for (let j = -1; j <= 1; j++) {
+                const newX = x + i;
+                const newY = y + j;
+                if (newX >= 0 && newX < this.gridSize &&
+                    newY >= 0 && newY < this.gridSize &&
+                    this.grid[newX][newY] === -1) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    toggleFlag(x, y, cell) {
+        if (!this.revealed[x][y]) {
+            this.flags[x][y] = !this.flags[x][y];
+            if (this.flags[x][y]) {
+                const flag = this.add.image(cell.x, cell.y, 'flag');
+                flag.setDisplaySize(this.cellSize * 0.8, this.cellSize * 0.8);
+                cell.flag = flag;
+            } else {
+                cell.flag.destroy();
+            }
+        }
+    }
+
+    revealCell(x, y, cell) {
+        if (this.revealed[x][y] || this.flags[x][y]) return;
+
+        this.revealed[x][y] = true;
+
+        cell.setTexture('revealedCell');
+
+        if (this.grid[x][y] === -1) {
+            // Hit a mine
+            const mine = this.add.image(cell.x, cell.y, 'mine');
+            mine.setDisplaySize(this.cellSize * 0.8, this.cellSize * 0.8);
+            this.gameOver = true;
+            this.gameOverText.setText('Game Over!');
+            this.revealAllMines();
+        } else {
+            // Show number
+            const value = this.grid[x][y];
+            if (value > 0) {
+                const number = this.add.image(cell.x, cell.y, `number${value}`);
+                number.setDisplaySize(this.cellSize * 0.6, this.cellSize * 0.6);
+            }
+
+            // If empty cell, reveal neighbors
+            if (value === 0) {
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        const newX = x + i;
+                        const newY = y + j;
+                        if (newX >= 0 && newX < this.gridSize &&
+                            newY >= 0 && newY < this.gridSize) {
+                            this.revealCell(newX, newY, this.cells[newX][newY]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    revealAllMines() {
+        for (let i = 0; i < this.gridSize; i++) {
+            for (let j = 0; j < this.gridSize; j++) {
+                if (this.grid[i][j] === -1) {
+                    const cell = this.cells[i][j];
+                    cell.setTexture('revealedCell');
+                    const mine = this.add.image(cell.x, cell.y, 'mine');
+                    mine.setDisplaySize(this.cellSize * 0.8, this.cellSize * 0.8);
+                }
+            }
+        }
+    }
+}
+class LogoScene extends Phaser.Scene {
+    constructor() {
+        super({
+            key: 'LogoScene'
+        });
+    }
+    preload() {
+        this.load.image('logo', 'https://rosebud.ai/assets/logo adiussoft.jpg?zMFV');
+    }
+    create() {
+        // Create and position the logo image
+        const title = this.add.image(this.scale.width * 0.5, this.scale.height * 0.5, 'logo');
+
+        // Scale the logo appropriately
+        title.setDisplaySize(this.scale.width * 0.25, this.scale.height * 0.25);
+        title.setOrigin(0.5);
+        // Add a bounce animation with scaled movement
+        this.tweens.add({
+            targets: title,
+            y: 280,
+            duration: 1500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Bounce.easeInOut'
+        });
+        // Switch to the game scene after 4 seconds
+        this.time.delayedCall(5000, () => {
+            this.scene.start('GameScene');
+        });
+    }
+}
+const container = document.getElementById('renderDiv');
+const config = {
+    type: Phaser.AUTO,
+    parent: container,
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    backgroundColor: 0x87CEEB, // Light blue background for cartoon theme
+    width: 800,
+    height: 600,
+    scene: [LogoScene, Minesweeper]
+};
+ 
+
+window.phaserGame = new Phaser.Game(config);
+    </script>
+</body>
+</html>
